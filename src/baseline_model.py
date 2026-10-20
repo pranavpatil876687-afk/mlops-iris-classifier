@@ -1,92 +1,57 @@
-import pandas as pd
+
 import mlflow
-import mlflow.sklearn
+import pandas as pd
 
 from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.preprocessing import LabelEncoder
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.metrics import accuracy_score
+
+FEATURE_COLS = [
+    "sepal length (cm)",
+    "sepal width (cm)",
+    "petal length (cm)",
+    "petal width (cm)",
+    "sepal_area",
+    "petal_area",
+    "sepal_to_petal_length_ratio",
+]
 
 
-# -----------------------------
-# 1. Load dataset
-# -----------------------------
-DATA_PATH = "data/processed/iris_features.csv"
+def run_baseline():
+    df = pd.read_csv("data/processed/iris_features.csv")
 
-df = pd.read_csv(DATA_PATH)
+    X = df[FEATURE_COLS].fillna(df[FEATURE_COLS].median())
+    y = LabelEncoder().fit_transform(df["species"])
 
-# Target column
-TARGET = "species"
-
-X = df.drop(columns=[TARGET])
-y = df[TARGET]
-
-# Keep only numerical features
-X = X.select_dtypes(include="number")
-
-
-# -----------------------------
-# 2. Train-test split
-# -----------------------------
-X_train, X_test, y_train, y_test = train_test_split(
-    X,
-    y,
-    test_size=0.2,
-    random_state=42,
-    stratify=y
-)
-
-
-# -----------------------------
-# 3. Baseline model
-# -----------------------------
-model = DecisionTreeClassifier(random_state=42)
-
-
-# -----------------------------
-# 4. Cross-validation
-# -----------------------------
-cv_scores = cross_val_score(
-    model,
-    X_train,
-    y_train,
-    cv=5,
-    scoring="f1_macro"
-)
-
-cv_mean = cv_scores.mean()
-cv_std = cv_scores.std()
-
-
-# -----------------------------
-# 5. Train final model
-# -----------------------------
-model.fit(X_train, y_train)
-
-y_pred = model.predict(X_test)
-
-test_accuracy = accuracy_score(y_test, y_pred)
-
-
-# -----------------------------
-# 6. MLflow tracking
-# -----------------------------
-mlflow.set_tracking_uri("http://127.0.0.1:5000")
-mlflow.set_experiment("iris-hyperparameter-tuning")
-
-with mlflow.start_run(run_name="baseline_decision_tree"):
-
-    mlflow.log_param("model", "DecisionTreeClassifier")
-    mlflow.log_param("cv_folds", 5)
-    mlflow.log_param("test_size", 0.2)
-
-    mlflow.log_metric("cv_f1_macro", cv_mean)
-    mlflow.log_metric("cv_f1_std", cv_std)
-    mlflow.log_metric("test_accuracy", test_accuracy)
-
-    mlflow.sklearn.log_model(
-        model,
-        "model"
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y,
+        test_size=0.2,
+        random_state=42,
+        stratify=y
     )
 
-print(f"Baseline CV f1_macro: {cv_mean:.4f} (+/- {cv_std:.4f})")
-print(f"Baseline test accuracy: {test_accuracy:.4f}")
+    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    mlflow.set_experiment("iris-hyperparameter-tuning")
+
+    with mlflow.start_run(run_name="baseline_decision_tree"):
+        model = DecisionTreeClassifier(random_state=42)
+
+        scores = cross_val_score(
+            model, X_train, y_train,
+            cv=5, scoring="f1_macro"
+        )
+
+        model.fit(X_train, y_train)
+        accuracy = model.score(X_test, y_test)
+
+        mlflow.log_param("model_type", "DecisionTreeClassifier_default")
+        mlflow.log_metric("cv_f1_macro_mean", scores.mean())
+        mlflow.log_metric("cv_f1_macro_std", scores.std())
+        mlflow.log_metric("test_accuracy", accuracy)
+
+        print(f"CV F1 Macro: {scores.mean():.4f}")
+        print(f"Test Accuracy: {accuracy:.4f}")
+
+
+if __name__ == "__main__":
+    run_baseline()
